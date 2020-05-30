@@ -1,8 +1,0 @@
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    properties:
-      hiberbate:
-        show_sql: true
-        format_sql: true

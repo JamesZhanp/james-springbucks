@@ -1,9 +1,6 @@
 package com.bucks.james.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -22,12 +19,13 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString(callSuper = true)
 @Builder
-public class CoffeeOrder implements Serializable {
+public class CoffeeOrder extends BaseEntity implements Serializable {
 
-    @Id
-    @GeneratedValue
-    private Long id;
+//    @Id
+//    @GeneratedValue
+//    private Long id;
 
     private String customer;
 
@@ -35,13 +33,17 @@ public class CoffeeOrder implements Serializable {
     @JoinTable(name = "T_ORDER_COFFEE")
     private List<Coffee> items;
 
+    @Enumerated
     @Column(nullable = false)
-    private Integer state;
+    private OrderState state;
 
-    @Column(nullable = false)
-    @CreationTimestamp
-    private Date createTime;
+//    @Column(updatable = false)
+//    @CreationTimestamp
+//    private Date createTime;
 
-    @UpdateTimestamp
-    private Date updateTime;
+//    @UpdateTimestamp
+//    private Date updateTime;
 }
+
+
+
