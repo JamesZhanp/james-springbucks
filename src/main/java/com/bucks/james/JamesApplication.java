@@ -1,10 +1,14 @@
 package com.bucks.james;
 
+import com.bucks.james.convert.MoneyReadConverter;
 import com.bucks.james.entity.Coffee;
 import com.bucks.james.entity.CoffeeOrder;
 import com.bucks.james.entity.OrderState;
-import com.bucks.james.repository.CoffeeOrderRepository;
+import com.bucks.james.mongodb.CoffeeMongo;
 import com.bucks.james.repository.CoffeeRepository;
+import com.bucks.james.service.CoffeeOrderService;
+import com.bucks.james.service.CoffeeService;
+import com.mongodb.client.result.UpdateResult;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.money.CurrencyUnit;
 import org.joda.money.Money;
@@ -13,92 +17,87 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.data.domain.Sort;
+import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
-@SpringBootApplication
+import static org.springframework.data.mongodb.core.query.Criteria.where;
+import static org.springframework.data.mongodb.core.query.Query.query;
+
+//@SpringBootApplication(scanBasePackages = "com.bucks.james.service")
 @EnableJpaRepositories
 @Slf4j
 @EnableTransactionManagement
 public class JamesApplication implements ApplicationRunner {
 
+//    @Autowired
+//    private CoffeeRepository coffeeRepository;
+//
+//    @Autowired
+//    private CoffeeService coffeeService;
+//
+//    @Autowired
+//    private CoffeeOrderService orderService;
 
-    @Autowired
-    private CoffeeRepository coffeeRepository;
-    @Autowired
-    private CoffeeOrderRepository coffeeOrderRepository;
+
+//    @Override
+//    public void run(ApplicationArguments args) throws Exception {
+//        log.info("All Coffee: {}", coffeeRepository.findAll());
+//
+//        Optional<Coffee> latte = coffeeService.findOneCoffee("Latte");
+//        if (latte.isPresent()){
+//            CoffeeOrder order = orderService.createOrder("Li Lei", latte.get());
+//            log.info("Update INIT to PAID: {}", orderService.updateState(order, OrderState.PAID));
+//            log.info("Update PAID to INIT: {}", orderService.updateState(order, OrderState.INIT));
+//        }
+//    }
 
     public static void main(String[] args) {
         SpringApplication.run(JamesApplication.class, args);
     }
+// mongodb 相关的内容
+    @Autowired
+    private MongoTemplate mongoTemplate;
+    @Bean
+    public MongoCustomConversions mongoCustomConversions() {
+        return new MongoCustomConversions(Arrays.asList(new MoneyReadConverter()));
+    }
 
     @Override
-    @Transactional
-    public void run(ApplicationArguments args) throws Exception{
-        initOrders();
-        findOrders();
-    }
-
-    private void initOrders() {
-        Coffee latte = Coffee.builder().name("latte")
-                .price(Money.of(CurrencyUnit.of("CNY"), 30.0))
-                .build();
-        coffeeRepository.save(latte);
-        log.info("Coffee: {}", latte);
-
-        Coffee espresso = Coffee.builder().name("espresso")
+    public void run(ApplicationArguments args) throws Exception {
+        CoffeeMongo espresso = CoffeeMongo.builder()
+                .name("espresso")
                 .price(Money.of(CurrencyUnit.of("CNY"), 20.0))
-                .build();
-        coffeeRepository.save(espresso);
-        log.info("Coffee: {}", espresso);
+                .createTime(new Date())
+                .updateTime(new Date()).build();
+        CoffeeMongo saved = mongoTemplate.save(espresso);
+        log.info("Coffee {}", saved);
 
-        CoffeeOrder order = CoffeeOrder.builder()
-                .customer("Li Lei")
-                .items(Collections.singletonList(espresso))
-                .state(OrderState.INIT)
-                .build();
-        coffeeOrderRepository.save(order);
-        log.info("Order: {}", order);
+        List<Coffee> list = mongoTemplate.find(
+                query(where("name").is("espresso")), Coffee.class);
+        log.info("Find {} Coffee", list.size());
+        list.forEach(c -> log.info("Coffee {}", c));
 
-        order = CoffeeOrder.builder()
-                .customer("Li Lei")
-                .items(Arrays.asList(espresso, latte))
-                .state(OrderState.INIT)
-                .build();
-        coffeeOrderRepository.save(order);
-        log.info("Order: {}", order);
-    }
+        Thread.sleep(1000);
+        // 为了看更新时间
+        UpdateResult result = mongoTemplate.updateFirst(query(where("name").is("espresso")),
+                new Update().set("price", Money.ofMajor(CurrencyUnit.of("CNY"), 30))
+                        .currentDate("updateTime"),
+                Coffee.class);
+        log.info("Update Result: {}", result.getModifiedCount());
+        Coffee updateOne = mongoTemplate.findById(saved.getId(), Coffee.class);
+        log.info("Update Result: {}", updateOne);
 
-    private void findOrders() {
-        coffeeRepository
-                .findAll()
-                .forEach(c -> log.info("Loading {}", c));
-
-        List<CoffeeOrder> list = coffeeOrderRepository.findTop3ByOrderByUpdateTimeDescIdAsc();
-        log.info("findTop3ByOrderByUpdateTimeDescIdAsc: {}", getJoinedOrderId(list));
-
-        list = coffeeOrderRepository.findByCustomerOrderById("Li Lei");
-        log.info("findByCustomerOrderById: {}", getJoinedOrderId(list));
-
-        // 不开启事务会因为没Session而报LazyInitializationException
-        list.forEach(o -> {
-            log.info("Order {}", o.getId());
-            o.getItems().forEach(i -> log.info("  Item {}", i));
-        });
-
-        list = coffeeOrderRepository.findByItems("latte");
-        log.info("findByItems_Name: {}", getJoinedOrderId(list));
-    }
-
-    private String getJoinedOrderId(List<CoffeeOrder> list) {
-        return list.stream().map(o -> o.getId().toString())
-                .collect(Collectors.joining(","));
+        mongoTemplate.remove(updateOne);
     }
 }
